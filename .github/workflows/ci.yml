@@ -1,0 +1,165 @@
+name: CI/CD Pipeline
+
+# ─────────────────────────────────────────────
+# NIVEAU 2 : déclenchement sur push et PR main
+# ─────────────────────────────────────────────
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: # déclenchement manuel (niveau 1)
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+
+  # ─────────────────────────────────────────
+  # JOB 1 : BUILD & TEST (Niveau 1 + 2)
+  # ─────────────────────────────────────────
+  build-and-test:
+    name: 🔨 Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Récupère le code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Vérifie la présence des fichiers essentiels (Niveau 1)
+      - name: Vérification des fichiers requis
+        run: |
+          echo "📁 Vérification des fichiers..."
+          for f in Dockerfile index.html nginx/nginx.conf; do
+            if [ ! -f "$f" ]; then
+              echo "❌ Fichier manquant : $f"
+              exit 1
+            else
+              echo "✅ $f présent"
+            fi
+          done
+
+      # 3. Build de l'image Docker (Niveau 1)
+      - name: Build image Docker
+        run: |
+          docker build -t nginx-ci-demo:${{ github.sha }} .
+          echo "✅ Image buildée : nginx-ci-demo:${{ github.sha }}"
+
+      # 4. Test de la config Nginx (Niveau 1)
+      - name: Test configuration Nginx
+        run: |
+          docker run --rm nginx-ci-demo:${{ github.sha }} nginx -t
+          echo "✅ Configuration Nginx valide"
+
+      # 5. Lance le conteneur et teste HTTP (Niveau 2)
+      - name: Lancer le conteneur
+        run: |
+          docker run -d --name nginx-test -p 8080:80 nginx-ci-demo:${{ github.sha }}
+          echo "⏳ Attente démarrage conteneur..."
+          sleep 3
+
+      # 6. Test endpoint HTTP / (Niveau 2)
+      - name: Test endpoint HTTP /
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/)
+          echo "Status HTTP / : $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "❌ Endpoint / ne répond pas correctement (status: $STATUS)"
+            exit 1
+          fi
+          echo "✅ Endpoint / opérationnel"
+
+      # 7. Test endpoint /health (Niveau 2)
+      - name: Test endpoint /health
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health)
+          BODY=$(curl -s http://localhost:8080/health)
+          echo "Status HTTP /health : $STATUS"
+          echo "Body : $BODY"
+          if [ "$STATUS" != "200" ]; then
+            echo "❌ Endpoint /health ne répond pas (status: $STATUS)"
+            exit 1
+          fi
+          echo "✅ Endpoint /health opérationnel"
+
+      # 8. Nettoyage
+      - name: Nettoyage conteneur
+        if: always()
+        run: docker rm -f nginx-test 2>/dev/null || true
+
+  # ─────────────────────────────────────────
+  # JOB 2 : PUBLISH IMAGE (Niveau 3)
+  # Uniquement sur push vers main
+  # ─────────────────────────────────────────
+  publish:
+    name: 📦 Publish to GHCR
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Login GHCR — le secret GITHUB_TOKEN est injecté automatiquement
+      # AUCUN secret custom dans le code (Niveau 2 - sécurité)
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Extraction des métadonnées pour les tags
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-
+            type=raw,value=latest
+
+      # Build et push avec tag SHA (Niveau 3)
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Image publiée
+        run: |
+          echo "✅ Image publiée sur GHCR :"
+          echo "${{ steps.meta.outputs.tags }}"
+
+  # ─────────────────────────────────────────
+  # JOB 3 : DEPLOY PROD avec validation manuelle (Niveau 3)
+  # Nécessite un environment "production" configuré sur GitHub
+  # Settings > Environments > production > Required reviewers
+  # ─────────────────────────────────────────
+  deploy-production:
+    name: 🚀 Deploy Production
+    runs-on: ubuntu-latest
+    needs: publish
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: production  # <-- déclenche la validation manuelle configurée sur GitHub
+      url: https://votre-domaine.com
+
+    steps:
+      - name: Deploy en production
+        run: |
+          echo "✅ Validation manuelle acceptée"
+          echo "🚀 Déploiement de l'image : ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}"
+          echo "📦 Tag : sha-${{ github.sha }}"
+          # Ici vous brancheriez votre commande réelle :
+          # ssh user@serveur "docker pull ... && docker-compose up -d"
+          # ou kubectl set image ...
+          echo "✅ Déploiement production terminé"
