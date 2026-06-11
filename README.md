@@ -10,11 +10,13 @@ Pipeline CI/CD complet sur un projet Nginx containerisé — Niveaux 1, 2 et 3.
 
 ```
 tp-cicd/
-├── .github/workflows/ci.yml   → Le pipeline (le fichier le plus important)
-├── nginx/nginx.conf            → Config du serveur web
-├── Dockerfile                  → Recette pour construire l'image
-└── index.html                  → La page web
-```
+├── .github/workflows/ci.yml              → Le pipeline (le fichier le plus important)
+├── Image/                                 → Captures d'écran du pipeline
+├── nginx/nginx.conf                       → Config du serveur web
+├── Dockerfile                             → Recette pour construire l'image
+├── index.html                             → La page web
+├── README.md                              → Documentation du projet
+└── Documentation_CICD_Amine_Ech-chalyouat.pdf  → Dossier de rendu complet
 
 ---
 
