@@ -17,6 +17,7 @@ tp-cicd/
 ├── index.html                             → La page web
 ├── README.md                              → Documentation du projet
 └── Documentation_CICD_Amine_Ech-chalyouat.pdf  → Dossier de rendu complet
+```
 
 ---
 
